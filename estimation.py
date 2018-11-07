@@ -80,7 +80,8 @@ def predict_time():
     previous builds
     :return: the estimated printing time
     """
-    ds = pd.read_csv('/Users/johansjoberg/Desktop/data.csv', delimiter=';', skipinitialspace=True)
+    path = os.getcwd() + "/data.csv"
+    ds = pd.read_csv(path, delimiter=';', skipinitialspace=True)
 
     x = ds[['Height', 'Powder', 'Recycled', 'Layers', 'Volume', 'Support']]
     y = ds['Time']
