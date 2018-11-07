@@ -5,13 +5,15 @@ from OCC.BRepGProp import *
 from OCC.Bnd import *
 from OCC.BRepBndLib import *
 
-from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import make_pipeline
+
+# from sklearn.model_selection import train_test_split
+# from sklearn.preprocessing import PolynomialFeatures
+# from sklearn.pipeline import make_pipeline
 
 import pandas as pd
 import os
+
 
 metal_density = 0.0077      # kg/cm^3
 
@@ -24,8 +26,8 @@ large_machine_cost = 800    # kr/h
 
 def read_stl_file(filename):
     """
-    Read the content of a STL file and return
-    the shape
+    Read the content of the given STL file and
+    return the shape
     :param filename: the STL file
     :return: the TopoDS_Shape object
     """
@@ -78,83 +80,141 @@ def calculate_dimensions(shape):
 
 def predict_time(data, attributes):
     """
-    Predict the printing time of the object by
+    Predict the printing time of the shape by
     performing a multiple linear regression on
     previous builds
-    :param data: the data from previous builds
-    :param attributes: the build's attributes
-    :return: the estimated printing time
+    :param data: data form previous builds
+    :param attributes: the shape's features
+    :return: the estimated printing time in h
     """
-    x = data[['Height', 'Volume']]
-    y = data['Time']
-
-    # x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+    features = data[['Height', 'Volume']]
+    labels = data['Time']
 
     reg = LinearRegression()
-    reg.fit(x, y)
+    reg.fit(features, labels)
 
-    return reg.predict(attributes)
+    return reg.predict(attributes)[0] / 60
 
 
-def material_consumption(data, shape):
-    volume = calculate_volume(shape)
+def material_consumption(data, volume):
+    """
+    The total material consumption include the
+    powder used for the object and the support
+    structure together
+    :param data: data from previous builds
+    :param volume: the shape's volume
+    :return: the material consumption in cm^3
+    """
     volume += estimate_support(data)
     return volume
 
 
-def material_cost(data, shape):
-    volume = material_consumption(data, shape)
-    weight = volume * metal_density
+def material_cost(consumption):
+    """
+    Calculate the cost of the powder used for
+    the shape and the support structure
+    :param consumption: the powder consumption
+    :return: the material cost in SEK
+    """
+    weight = consumption * metal_density
     cost = weight * powder_cost
     return cost
 
 
 def estimate_support(data):
+    """
+    Estimate the volume of the support structure
+    needed by taking the average of the data from
+    previous builds
+    :param data: data from previous builds
+    :return: the estimated support volume in cm^3
+    """
     support_mean = data['Support'].mean()
     return support_mean / 1000
 
 
-def total_labour_cost(shape):
-    dims = calculate_dimensions(shape)
+def operator_cost(dims):
+    """
+    Calculate the labour cost of the shape
+    :param dims: the shape's dimensions
+    :return: the labour cost in SEK
+    """
     area = dims[0] * dims[1]
     cost = labour_cost * (22 + (area * 0.5))
     return cost
 
 
-def define_machine(shape):
-    dims = calculate_dimensions(shape)
-    if dims[0] < 125 and dims[1] < 125:
+def printing_cost(hours, dims):
+    """
+    Estimate the actual cost of printing the
+    shape based on the predicted printing time
+    and the appropriate printer.
+    :param hours: the estimated time
+    :param dims: the shape's dimensions
+    :return: the printing cost in SEK
+    """
+    cost = hours * printer_cost(dims[0], dims[1])
+    return cost
+
+
+def printer_cost(x, y):
+    """
+    Return the printer cost by determining
+    the most appropriate printer to use for
+    printing the shape
+    :param x: the shape's x width
+    :param y: the shape's y width
+    :return: the printer cost in SEK
+    """
+    if x < 125 and y < 125:
         return small_machine_cost
     else:
         return large_machine_cost
 
 
-def machine_cost(data, shape):
-    volume = calculate_volume(shape)
-    height = calculate_dimensions(shape)[2]
-    time = predict_time(data, [[volume, height]]) / 60
-    return time * define_machine(shape)
-
-
-def recycled_material_cost(data, shape):
-    dims = calculate_dimensions(shape)
+def recycled_savings(dims, consumption):
+    """
+    Calculate the monetary value of the powder
+    that can be reused in later builds.
+    :param dims: the shape's dimensions
+    :param consumption: the powder consumption
+    :return: the value of recycled powder in SEK
+    """
     total = dims[0] * dims[1] * dims[2]
-    volume = material_consumption(data, shape)
-    recycled = total - volume
+    recycled = total - consumption
     return recycled * powder_cost * 0.5
 
 
 def estimate_cost(data, shape):
-    return material_cost(data, shape) + total_labour_cost(shape) + \
-           machine_cost(data, shape) - recycled_material_cost(data, shape)
+    """
+    Estimate the cost of a shape based on
+    static data and previous builds.
+    :param data: data from previous builds
+    :param shape: the TopoDS_Shape object
+    :return: the estimated cost in SEK
+    """
+    cost = 0
+
+    volume = calculate_volume(shape)
+    dims = calculate_dimensions(shape)
+    cons = material_consumption(data, volume)
+
+    hours = predict_time(data, [[volume, dims[2]]])
+
+    cost += material_cost(cons)
+    cost += operator_cost(dims)
+    cost += printing_cost(hours, dims)
+    cost -= recycled_savings(dims, cons)
+
+    return round(cost, 2)
 
 
-def test():
+def main():
     path = os.getcwd() + "/data.csv"
-    data = pd.read_csv(path, delimiter=';', skipinitialspace=True)
+    data = pd.read_csv(path, delimiter=';')
     shape = read_stl_file("stlfiles/cube.stl")
     return estimate_cost(data, shape)
 
 
 if __name__ == "__main__":
-    print(test())
+    print(main())
