@@ -6,12 +6,14 @@ from OCC.Bnd import *
 from OCC.BRepBndLib import *
 
 from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn import metrics
 
-# from sklearn.model_selection import train_test_split
 # from sklearn.preprocessing import PolynomialFeatures
 # from sklearn.pipeline import make_pipeline
 
 import pandas as pd
+import numpy as np
 import os
 
 
@@ -89,6 +91,14 @@ def predict_time(data, attributes):
     """
     features = data[['Height', 'Volume']]
     labels = data['Time']
+
+    x_train, x_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=0)
+
+    reg_test = LinearRegression()
+    reg_test.fit(x_train, y_train)
+    res = reg_test.predict(x_test)
+
+    print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, res)))
 
     reg = LinearRegression()
     reg.fit(features, labels)
@@ -199,7 +209,7 @@ def estimate_cost(data, shape):
     dims = calculate_dimensions(shape)
     cons = material_consumption(data, volume)
 
-    hours = predict_time(data, [[volume, dims[2]]])
+    hours = predict_time(data, [[dims[2], volume]])
 
     cost += material_cost(cons)
     cost += operator_cost(dims)
