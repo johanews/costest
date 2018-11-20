@@ -7,15 +7,13 @@ from OCC.BRepBndLib import *
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn import metrics
 
 # from sklearn.preprocessing import PolynomialFeatures
 # from sklearn.pipeline import make_pipeline
 
-import pandas as pd
 import numpy as np
 import os
-
+import pyodbc
 
 metal_density = 0.0077      # kg/cm^3
 
@@ -25,6 +23,7 @@ labour_cost = 600           # kr/h
 small_machine_cost = 600    # kr/h
 large_machine_cost = 800    # kr/h
 
+DB_list = []                # variable data list from DB
 
 def read_stl_file(filename):
     """
@@ -80,42 +79,43 @@ def calculate_dimensions(shape):
     return x/10, y/10, z/10
 
 
-def predict_time(data, attributes):
+def predict_time(attributes):
     """
     Predict the printing time of the shape by
     performing a multiple linear regression on
     previous builds
-    :param data: data form previous builds
     :param attributes: the shape's features
     :return: the estimated printing time in h
     """
-    features = data[['Height', 'Volume']]
-    labels = data['Time']
 
-    x_train, x_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=0)
+    features_DB = get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS__MM3_')
+    features_DB = np.array(features_DB)
+    features_DB = features_DB.reshape(len(features_DB), 2)
+
+    labels_DB = get_DB_data('TOTAL_PRINTING_TIME')
+    labels_DB = labels_DB[0:len(features_DB)]
+
+    x_train, x_test, y_train, y_test = train_test_split(features_DB, labels_DB, test_size=0.2, random_state=0)
 
     reg_test = LinearRegression()
     reg_test.fit(x_train, y_train)
     res = reg_test.predict(x_test)
 
-    print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, res)))
-
     reg = LinearRegression()
-    reg.fit(features, labels)
+    reg.fit(features_DB, labels_DB)
 
     return reg.predict(attributes)[0] / 60
 
 
-def material_consumption(data, volume):
+def material_consumption(volume):
     """
     The total material consumption include the
     powder used for the object and the support
     structure together
-    :param data: data from previous builds
     :param volume: the shape's volume
     :return: the material consumption in cm^3
     """
-    volume += estimate_support(data)
+    volume += estimate_support()
     return volume
 
 
@@ -131,16 +131,15 @@ def material_cost(consumption):
     return cost
 
 
-def estimate_support(data):
+def estimate_support():
     """
     Estimate the volume of the support structure
     needed by taking the average of the data from
     previous builds
-    :param data: data from previous builds
     :return: the estimated support volume in cm^3
     """
-    support_mean = data['Support'].mean()
-    return support_mean / 1000
+    support_mean_DB = np.array(get_DB_data('Volume_of_supports__mm3_')).mean()
+    return support_mean_DB / 1000
 
 
 def operator_cost(dims):
@@ -195,11 +194,10 @@ def recycled_savings(dims, consumption):
     return recycled * powder_cost * 0.5
 
 
-def estimate_cost(data, shape):
+def estimate_cost(shape):
     """
     Estimate the cost of a shape based on
     static data and previous builds.
-    :param data: data from previous builds
     :param shape: the TopoDS_Shape object
     :return: the estimated cost in SEK
     """
@@ -207,24 +205,53 @@ def estimate_cost(data, shape):
 
     volume = calculate_volume(shape)
     dims = calculate_dimensions(shape)
-    cons = material_consumption(data, volume)
+    cons = material_consumption(volume)
 
-    hours = predict_time(data, [[dims[2], volume]])
+    hours = predict_time([[dims[2], volume]])
 
     cost += material_cost(cons)
+    print("Material: " + str(cost))
     cost += operator_cost(dims)
+    print("Operational: " + str(cost))
     cost += printing_cost(hours, dims)
+    print("Running time: " + str(cost))
     cost -= recycled_savings(dims, cons)
+    print("Recycled: " + str(cost))
 
     return round(cost, 2)
 
 
 def main():
-    path = os.getcwd() + "/data.csv"
-    data = pd.read_csv(path, delimiter=';')
-    shape = read_stl_file("stlfiles/cube.stl")
-    return estimate_cost(data, shape)
+    file = "e:/d1.stl"
+    shape = read_stl_file(file)
+    return estimate_cost(shape)
 
+def get_DB_data(colName):
+    DB_list.clear()
+
+    server = 'evoserver.database.windows.net'
+    database = 'SEPDB'
+    username = 'eksmo'
+    password = 'password-8'
+    driver = '{ODBC Driver 13 for SQL Server}'
+    cnxn = pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+password)
+    cursor = cnxn.cursor()
+
+    #Select Query
+    tsql = "SELECT "+ colName + " FROM SvereaData"
+
+    with cursor.execute(tsql):
+        row = cursor.fetchone()
+        if ", " not in colName:
+            while row:
+                DB_list.append(row[0])
+                row = cursor.fetchone()
+        else:
+            while row:
+                if '-' not in row:
+                    DB_list.append(row)
+                row = cursor.fetchone()
+    return DB_list
 
 if __name__ == "__main__":
     print(main())
