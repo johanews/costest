@@ -7,13 +7,16 @@ from OCC.BRepBndLib import *
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
+from sklearn import metrics
 
 # from sklearn.preprocessing import PolynomialFeatures
 # from sklearn.pipeline import make_pipeline
 
+import pandas as pd
 import numpy as np
 import os
 import pyodbc
+import datetime
 
 metal_density = 0.0077      # kg/cm^3
 
@@ -23,7 +26,7 @@ labour_cost = 600           # kr/h
 small_machine_cost = 600    # kr/h
 large_machine_cost = 800    # kr/h
 
-DB_list = []                # variable data list from DB
+DB_list = [] # variable data list from DB
 
 def read_stl_file(filename):
     """
@@ -88,7 +91,7 @@ def predict_time(attributes):
     :return: the estimated printing time in h
     """
 
-    features_DB = get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS__MM3_')
+    features_DB = get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS')
     features_DB = np.array(features_DB)
     features_DB = features_DB.reshape(len(features_DB), 2)
 
@@ -101,9 +104,12 @@ def predict_time(attributes):
     reg_test.fit(x_train, y_train)
     res = reg_test.predict(x_test)
 
+
+
     reg = LinearRegression()
     reg.fit(features_DB, labels_DB)
 
+    print("Estimated print time: ", "%.0f" % reg.predict(attributes)[0], "minutes")
     return reg.predict(attributes)[0] / 60
 
 
@@ -116,6 +122,7 @@ def material_consumption(volume):
     :return: the material consumption in cm^3
     """
     volume += estimate_support()
+    print("Estimated powder consumption: ", "%.0f" % volume, "cm^3")
     return volume
 
 
@@ -138,7 +145,7 @@ def estimate_support():
     previous builds
     :return: the estimated support volume in cm^3
     """
-    support_mean_DB = np.array(get_DB_data('Volume_of_supports__mm3_')).mean()
+    support_mean_DB = np.array(get_DB_data('Volume_of_supports')).mean()
     return support_mean_DB / 1000
 
 
@@ -210,19 +217,19 @@ def estimate_cost(shape):
     hours = predict_time([[dims[2], volume]])
 
     cost += material_cost(cons)
-    print("Material: " + str(cost))
+    #print("Material: " + str(cost))
     cost += operator_cost(dims)
-    print("Operational: " + str(cost))
+    #print("Operational: " + str(cost))
     cost += printing_cost(hours, dims)
-    print("Running time: " + str(cost))
+    #print("Running time: " + str(cost))
     cost -= recycled_savings(dims, cons)
-    print("Recycled: " + str(cost))
+    #print("Recycled: " + str(cost))
 
     return round(cost, 2)
 
 
 def main():
-    file = "e:/d1.stl"
+    file = "/Users/felixlissaker/IdeaProjects/costest/stlfiles/cube.stl"
     shape = read_stl_file(file)
     return estimate_cost(shape)
 
@@ -235,11 +242,13 @@ def get_DB_data(colName):
     password = 'password-8'
     driver = '{ODBC Driver 13 for SQL Server}'
     cnxn = pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+password)
+
+    #cnxn = pyodbc.connect("Driver = ODBC Driver 13 for SQL Server;Server=tcp:evoserver.database.windows.net,1433;Database=SEPDB;Uid=eksmo@evoserver;Pwd={your_password_here};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;")
+
     cursor = cnxn.cursor()
 
     #Select Query
-    tsql = "SELECT "+ colName + " FROM SvereaData"
-
+    tsql = "SELECT "+colName+" FROM SwereaData"
     with cursor.execute(tsql):
         row = cursor.fetchone()
         if ", " not in colName:
@@ -254,4 +263,4 @@ def get_DB_data(colName):
     return DB_list
 
 if __name__ == "__main__":
-    print(main())
+    print("Cost for shape: ", "%.0f" % main(), "SEK")
