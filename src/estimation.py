@@ -7,26 +7,21 @@ from OCC.BRepBndLib import *
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn import metrics
 
-# from sklearn.preprocessing import PolynomialFeatures
-# from sklearn.pipeline import make_pipeline
-
-import pandas as pd
 import numpy as np
 import os
 import pyodbc
-import datetime
 
 metal_density = 0.0077      # kg/cm^3
 
 powder_cost = 1000          # kr/kg
-labour_cost = 600           # kr/h
+hourly_labour_cost = 600           # kr/h
 
 small_machine_cost = 600    # kr/h
 large_machine_cost = 800    # kr/h
 
 DB_list = [] # variable data list from DB
+support_switch = bool #Determains if the build has support or not.
 
 def read_stl_file(filename):
     """
@@ -52,17 +47,6 @@ def calculate_volume(shape):
     props = GProp_GProps()
     brepgprop_VolumeProperties(shape, props)
     return props.Mass() / 1000
-
-
-def calculate_surface_area(shape):
-    """
-    Calculate the surface area of the given shape
-    :param shape: the TopoDS_Shape object
-    :return: the surface area of the shape in cm^2
-    """
-    props = GProp_GProps()
-    brepgprop_SurfaceProperties(shape, props)
-    return props.Mass() / 100
 
 
 def calculate_dimensions(shape):
@@ -91,50 +75,47 @@ def predict_time(attributes):
     :return: the estimated printing time in h
     """
 
-    features_DB = get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS')
-    features_DB = np.array(features_DB)
+    features_DB = np.array(get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS'))
     features_DB = features_DB.reshape(len(features_DB), 2)
 
-    labels_DB = get_DB_data('TOTAL_PRINTING_TIME')
-    labels_DB = labels_DB[0:len(features_DB)]
+    labels_DB = get_DB_data('TOTAL_PRINTING_TIME')[0:len(features_DB)]
 
     x_train, x_test, y_train, y_test = train_test_split(features_DB, labels_DB, test_size=0.2, random_state=0)
 
     reg_test = LinearRegression()
     reg_test.fit(x_train, y_train)
-    res = reg_test.predict(x_test)
-
-
 
     reg = LinearRegression()
     reg.fit(features_DB, labels_DB)
 
-    print("Estimated print time: ", "%.0f" % reg.predict(attributes)[0], "minutes")
-    return reg.predict(attributes)[0] / 60
+    #print("Estimated print time: ", "%.0f" % reg.predict(attributes)[0], "minutes")
+    return reg.predict(attributes)[0]
 
 
-def material_consumption(volume):
+def material_consumption(volume, support_switch):
     """
-    The total material consumption include the
-    powder used for the object and the support
-    structure together
+    The total material consumption can include support if needed.
     :param volume: the shape's volume
+    :param support_switch: switches support on/off as bool.
     :return: the material consumption in cm^3
     """
-    volume += estimate_support()
-    print("Estimated powder consumption: ", "%.0f" % volume, "cm^3")
+    if support_switch == True:
+        volume += estimate_support()
+    #print("Powder consumption: ", "%.2f" % volume, "cm^3")
     return volume
 
 
-def material_cost(consumption):
+def material_cost(consumption, metal_density):
     """
     Calculate the cost of the powder used for
     the shape and the support structure
     :param consumption: the powder consumption
+    :param metal_density: which material density is used
     :return: the material cost in SEK
     """
-    weight = consumption * metal_density
-    cost = weight * powder_cost
+    weight = consumption * metal_density #cm^3 * kg/cm^3 = kg
+    #print("Weight of build is ", "%.0f" % (weight * 1000), "g")
+    cost = weight * powder_cost #kg * SEK/kg = SEK
     return cost
 
 
@@ -145,22 +126,27 @@ def estimate_support():
     previous builds
     :return: the estimated support volume in cm^3
     """
-    support_mean_DB = np.array(get_DB_data('Volume_of_supports')).mean()
-    return support_mean_DB / 1000
+    support_collum = get_DB_data('VOLUME_OF_SUPPORTS')
+    support_list = []
+    for build_support in support_collum:
+        if 0 != build_support:
+            support_list.append(build_support)
+    support_mean = np.array(support_list).mean()
+    return support_mean / 1000
 
 
-def operator_cost(dims):
+def labour_cost(dims):
     """
     Calculate the labour cost of the shape
     :param dims: the shape's dimensions
     :return: the labour cost in SEK
     """
     area = dims[0] * dims[1]
-    cost = labour_cost * (22 + (area * 0.5))
+    cost = hourly_labour_cost * (22 + (area * 0.5))
     return cost
 
 
-def printing_cost(hours, dims):
+def printing_cost(minutes, dims):
     """
     Estimate the actual cost of printing the
     shape based on the predicted printing time
@@ -169,7 +155,7 @@ def printing_cost(hours, dims):
     :param dims: the shape's dimensions
     :return: the printing cost in SEK
     """
-    cost = hours * printer_cost(dims[0], dims[1])
+    cost = (minutes/60) * printer_cost(dims[0], dims[1]) #
     return cost
 
 
@@ -212,27 +198,35 @@ def estimate_cost(shape):
 
     volume = calculate_volume(shape)
     dims = calculate_dimensions(shape)
-    cons = material_consumption(volume)
+    cons = material_consumption(volume, False)
+    minutes = predict_time([[dims[2], volume]])
 
-    hours = predict_time([[dims[2], volume]])
+    cost += material_cost(cons, metal_density)
+    #print("Material cost: ", "%.0f" % cost, "SEK")
 
-    cost += material_cost(cons)
-    #print("Material: " + str(cost))
-    cost += operator_cost(dims)
-    #print("Operational: " + str(cost))
-    cost += printing_cost(hours, dims)
-    #print("Running time: " + str(cost))
+    cost += labour_cost( dims )
+    #print("Labour cost: ", "%.0f" % labour_cost( dims ), "SEK" )
+
+    cost += printing_cost(minutes, dims)
+    #print("Running time cost: ", "%.0f" % printing_cost(minutes, dims), "SEK")
+
     cost -= recycled_savings(dims, cons)
-    #print("Recycled: " + str(cost))
+    #print("Recycled: ", "%.0f" % recycled_savings(dims,cons), "SEK")
 
-    return round(cost, 2)
+    return round(cost, 1)
 
 
 def main():
-    file = "/Users/felixlissaker/IdeaProjects/costest/stlfiles/cube.stl"
-    shape = read_stl_file(file)
-    return estimate_cost(shape)
+    file_names = ["D1.stl", "D2.stl"]
+    cost_summary = {}
+    for name_stl in file_names:
+        file = "/Users/felixlissaker/IdeaProjects/costest/stlfiles/" + name_stl
+        shape = read_stl_file(file)
+        #print("Cost for", name_stl, "is: ", estimate_cost(shape), "SEK")
 
+        cost_summary[name_stl] = estimate_cost(shape)
+    print(cost_summary)
+    
 def get_DB_data(colName):
     DB_list.clear()
 
@@ -242,8 +236,6 @@ def get_DB_data(colName):
     password = 'password-8'
     driver = '{ODBC Driver 13 for SQL Server}'
     cnxn = pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+password)
-
-    #cnxn = pyodbc.connect("Driver = ODBC Driver 13 for SQL Server;Server=tcp:evoserver.database.windows.net,1433;Database=SEPDB;Uid=eksmo@evoserver;Pwd={your_password_here};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;")
 
     cursor = cnxn.cursor()
 
@@ -263,4 +255,4 @@ def get_DB_data(colName):
     return DB_list
 
 if __name__ == "__main__":
-    print("Cost for shape: ", "%.0f" % main(), "SEK")
+    main()
