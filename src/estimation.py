@@ -186,7 +186,7 @@ class CostEstimation(Resource):
         recycled = total - consumption
         return recycled * self.powder_cost * 0.5
 
-    def get(self):
+    def get(self, file):
         """
         Estimate the cost of a shape based on
         static data and previous builds.
@@ -202,7 +202,7 @@ class CostEstimation(Resource):
 
         cost = 0
 
-        shape = self.read_stl_file("./stlfiles/cube.stl")
+        shape = self.read_stl_file(file)
 
         path = "./data.csv"
         data = pa.read_csv(path, delimiter=';')
