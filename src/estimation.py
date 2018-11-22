@@ -22,6 +22,11 @@ api = Api(api_bp)
 CORS(app)
 
 
+@app.route("/")
+def hello():
+    return "Hello World!"
+
+
 class CostEstimation(Resource):
 
     def __init__(self):
