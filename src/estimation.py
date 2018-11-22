@@ -6,19 +6,19 @@ from OCC.Bnd import *
 from OCC.BRepBndLib import *
 
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn import metrics
 
 from flask import Flask
+from flask import Blueprint
 from flask_cors import CORS
 from flask_restful import Resource, Api
 from flask_jsonpify import jsonify
 
-import numpy as np
+import pandas as pa
 import os
 
 app = Flask(__name__)
-api = Api(app)
+api_bp = Blueprint('api', __name__)
+api = Api(api_bp)
 
 CORS(app)
 
@@ -96,13 +96,8 @@ class CostEstimation(Resource):
         features = data[['Height', 'Volume']]
         labels = data['Time']
 
-        x_train, x_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=0)
-
         reg_test = LinearRegression()
-        reg_test.fit(x_train, y_train)
-        res = reg_test.predict(x_test)
-
-        print('Root Mean Squared Error:', np.sqrt(metrics.mean_squared_error(y_test, res)))
+        reg_test.fit(features, labels)
 
         reg = LinearRegression()
         reg.fit(features, labels)
@@ -207,25 +202,28 @@ class CostEstimation(Resource):
 
         cost = 0
 
-        # path = "/Users/johansjoberg/IdeaProjects/costest/data.csv"
-        # data = pa.read_csv(path, delimiter=';')
+        shape = self.read_stl_file("./stlfiles/cube.stl")
 
-        # volume = self.calculate_volume(shape)
-        # dims = self.calculate_dimensions(shape)
-        # cons = self.material_consumption(data, volume)
+        path = "./data.csv"
+        data = pa.read_csv(path, delimiter=';')
 
-        # hours = self.predict_time(data, [[dims[2], volume]])
+        volume = self.calculate_volume(shape)
+        dims = self.calculate_dimensions(shape)
+        cons = self.material_consumption(data, volume)
 
-        # cost += self.material_cost(cons)
-        # cost += self.operator_cost(dims)
-        # cost += self.printing_cost(hours, dims)
-        # cost -= self.recycled_savings(dims, cons)
+        hours = self.predict_time(data, [[dims[2], volume]])
 
-        result = {'data': {'cost': round(cost, 2)}}
+        cost += self.material_cost(cons)
+        cost += self.operator_cost(dims)
+        cost += self.printing_cost(hours, dims)
+        cost -= self.recycled_savings(dims, cons)
+
+        result = {'cost': round(cost, 2)}
         return jsonify(result)
 
 
 api.add_resource(CostEstimation, '/costest')
+app.register_blueprint(api_bp)
 
 
 if __name__ == "__main__":
