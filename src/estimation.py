@@ -13,7 +13,6 @@ from flask_cors import CORS
 from flask_restful import Resource, Api
 from flask_jsonpify import jsonify
 
-import pandas as pa
 import os
 
 app = Flask(__name__)
@@ -186,7 +185,7 @@ class CostEstimation(Resource):
         recycled = total - consumption
         return recycled * self.powder_cost * 0.5
 
-    def get(self, file):
+    def get(self):
         """
         Estimate the cost of a shape based on
         static data and previous builds.
@@ -202,21 +201,21 @@ class CostEstimation(Resource):
 
         cost = 0
 
-        shape = self.read_stl_file(file)
+        # shape = self.read_stl_file(file)
 
-        path = "./data.csv"
-        data = pa.read_csv(path, delimiter=';')
+        # path = "./data.csv"
+        # data = pa.read_csv(path, delimiter=';')
 
-        volume = self.calculate_volume(shape)
-        dims = self.calculate_dimensions(shape)
-        cons = self.material_consumption(data, volume)
+        # volume = self.calculate_volume(shape)
+        # dims = self.calculate_dimensions(shape)
+        # cons = self.material_consumption(data, volume)
 
-        hours = self.predict_time(data, [[dims[2], volume]])
+        # hours = self.predict_time(data, [[dims[2], volume]])
 
-        cost += self.material_cost(cons)
-        cost += self.operator_cost(dims)
-        cost += self.printing_cost(hours, dims)
-        cost -= self.recycled_savings(dims, cons)
+        # cost += self.material_cost(cons)
+        # cost += self.operator_cost(dims)
+        # cost += self.printing_cost(hours, dims)
+        # cost -= self.recycled_savings(dims, cons)
 
         result = {'cost': round(cost, 2)}
         return jsonify(result)
