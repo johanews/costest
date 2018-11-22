@@ -15,7 +15,6 @@ from flask_restful import Resource, Api
 from flask_jsonpify import jsonify
 
 import numpy as np
-import pandas as pa
 import os
 
 app = Flask(__name__)
@@ -192,43 +191,42 @@ class CostEstimation(Resource):
         recycled = total - consumption
         return recycled * self.powder_cost * 0.5
 
-    def get(self, variables, shape):
+    def get(self):
         """
         Estimate the cost of a shape based on
         static data and previous builds.
         :return: the estimated cost in SEK
         """
+        # self.metal_density = variables[0]   # kg/cm^3
 
-        self.metal_density = variables[0]   # kg/cm^3
+        # self.powder_cost = variables[1]     # kr/kg
+        # self.labour_cost = variables[2]     # kr/h
 
-        self.powder_cost = variables[1]     # kr/kg
-        self.labour_cost = variables[2]     # kr/h
-
-        self.small_machine_cost = variables[3]  # kr/h
-        self.large_machine_cost = variables[4]  # kr/h
+        # self.small_machine_cost = variables[3]  # kr/h
+        # self.large_machine_cost = variables[4]  # kr/h
 
         cost = 0
 
-        path = "/Users/johansjoberg/IdeaProjects/costest/data.csv"
-        data = pa.read_csv(path, delimiter=';')
+        # path = "/Users/johansjoberg/IdeaProjects/costest/data.csv"
+        # data = pa.read_csv(path, delimiter=';')
 
-        volume = self.calculate_volume(shape)
-        dims = self.calculate_dimensions(shape)
-        cons = self.material_consumption(data, volume)
+        # volume = self.calculate_volume(shape)
+        # dims = self.calculate_dimensions(shape)
+        # cons = self.material_consumption(data, volume)
 
-        hours = self.predict_time(data, [[dims[2], volume]])
+        # hours = self.predict_time(data, [[dims[2], volume]])
 
-        cost += self.material_cost(cons)
-        cost += self.operator_cost(dims)
-        cost += self.printing_cost(hours, dims)
-        cost -= self.recycled_savings(dims, cons)
+        # cost += self.material_cost(cons)
+        # cost += self.operator_cost(dims)
+        # cost += self.printing_cost(hours, dims)
+        # cost -= self.recycled_savings(dims, cons)
 
         result = {'data': {'cost': round(cost, 2)}}
         return jsonify(result)
 
 
-api.add_resource(CostEstimation(), '/costest')
+api.add_resource(CostEstimation, '/costest')
 
 
 if __name__ == "__main__":
-    app.run(port=5002)
+    app.run()
