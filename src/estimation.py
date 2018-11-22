@@ -199,7 +199,7 @@ class CostEstimation(Resource):
         # self.small_machine_cost = variables[3]  # kr/h
         # self.large_machine_cost = variables[4]  # kr/h
 
-        cost = 0
+        cost = 100
 
         # shape = self.read_stl_file(file)
 
