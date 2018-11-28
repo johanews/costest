@@ -12,7 +12,7 @@ import numpy as np
 import os
 import pyodbc
 
-metal_density = 0.0077      # kg/cm^3
+metal_density = 0.008      # kg/cm^3
 
 powder_cost = 1000          # kr/kg
 hourly_labour_cost = 600           # kr/h
@@ -256,3 +256,4 @@ def get_DB_data(colName):
 
 if __name__ == "__main__":
     main()
+
