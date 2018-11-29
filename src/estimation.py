@@ -26,11 +26,6 @@ api = Api(api_bp)
 CORS(app)
 
 
-class Machine(Enum):
-    SMALL = [12.5, 12.5, 600]
-    LARGE = [28.0, 28.0, 800]
-
-
 class CostEstimation(Resource):
 
     def __init__(self):
@@ -44,6 +39,10 @@ class CostEstimation(Resource):
 
         self.machine = None
         self.include_support = False
+
+    class Machine(Enum):
+        SMALL = [12.5, 12.5, 600]
+        LARGE = [28.0, 28.0, 800]
 
     def read_stl_file(self, filename):
         """
@@ -178,9 +177,9 @@ class CostEstimation(Resource):
 
     def select_printer(self, dims):
         if dims[0] < 125 and dims[1] < 125:
-            self.machine = Machine.SMALL
+            self.machine = self.Machine.SMALL
         else:
-            self.machine = Machine.LARGE
+            self.machine = self.Machine.LARGE
 
     def recycled_savings(self, dims, consumption):
         """
@@ -194,7 +193,7 @@ class CostEstimation(Resource):
         recycled = total - consumption
         return recycled * self.powder_cost * 0.5
 
-    def get_DB_data(colName):
+    def get_DB_data(self, colName):
 
         DB_list = []
 
