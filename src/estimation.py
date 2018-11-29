@@ -30,8 +30,6 @@ class Machine(Enum):
     SMALL = [12.5, 12.5, 600]
     LARGE = [28.0, 28.0, 800]
 
-DB_list = []  # variable data list from DB
-support_switch = bool  # Determains if the build has support or not.
 
 class CostEstimation(Resource):
 
@@ -45,6 +43,7 @@ class CostEstimation(Resource):
         self.large_machine_cost = 800    # kr/h
 
         self.machine = None
+        self.include_support = False
 
     def read_stl_file(self, filename):
         """
@@ -105,10 +104,10 @@ class CostEstimation(Resource):
         :param attributes: the shape's features
         :return: the estimated printing time in h
         """
-        features_DB = np.array(get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS'))
+        features_DB = np.array(self.get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS'))
         features_DB = features_DB.reshape(len(features_DB), 2)
 
-        labels_DB = get_DB_data('TOTAL_PRINTING_TIME')[0:len(features_DB)]
+        labels_DB = self.get_DB_data('TOTAL_PRINTING_TIME')[0:len(features_DB)]
 
         reg = LinearRegression()
         reg.fit(features_DB, labels_DB)
@@ -147,7 +146,7 @@ class CostEstimation(Resource):
         :param data: data from previous builds
         :return: the estimated support volume in cm^3
         """
-        support_collum = get_DB_data('VOLUME_OF_SUPPORTS')
+        support_collum = self.get_DB_data('VOLUME_OF_SUPPORTS')
         support_list = []
         for build_support in support_collum:
             if 0 != build_support:
@@ -196,7 +195,8 @@ class CostEstimation(Resource):
         return recycled * self.powder_cost * 0.5
 
     def get_DB_data(colName):
-        DB_list.clear()
+
+        DB_list = []
 
         server = 'evoserver.database.windows.net'
         database = 'SEPDB'
@@ -229,14 +229,6 @@ class CostEstimation(Resource):
         static data and previous builds.
         :return: the estimated cost in SEK
         """
-        # self.metal_density = variables[0]   # kg/cm^3
-
-        # self.powder_cost = variables[1]     # kr/kg
-        # self.labour_cost = variables[2]     # kr/h
-
-        # self.small_machine_cost = variables[3]  # kr/h
-        # self.large_machine_cost = variables[4]  # kr/h
-
         cost = 0
 
         volume = self.calculate_volume(shape)
