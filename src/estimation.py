@@ -13,6 +13,8 @@ from flask_cors import CORS
 from flask_restful import Resource, Api
 from flask_jsonpify import jsonify
 
+from enum import Enum
+
 import pandas as pa
 import os
 
@@ -21,6 +23,11 @@ api_bp = Blueprint('api', __name__)
 api = Api(api_bp)
 
 CORS(app)
+
+
+class Machine(Enum):
+    SMALL = [12.5, 12.5, 600]
+    LARGE = [28.0, 28.0, 800]
 
 
 class CostEstimation(Resource):
@@ -33,6 +40,8 @@ class CostEstimation(Resource):
 
         self.small_machine_cost = 600    # kr/h
         self.large_machine_cost = 800    # kr/h
+
+        self.machine = None
 
     def read_stl_file(self, filename):
         """
@@ -160,19 +169,11 @@ class CostEstimation(Resource):
         cost = hours * self.printer_cost(dims[0], dims[1])
         return cost
 
-    def printer_cost(self, x, y):
-        """
-        Return the printer cost by determining
-        the most appropriate printer to use for
-        printing the shape
-        :param x: the shape's x width
-        :param y: the shape's y width
-        :return: the printer cost in SEK
-        """
-        if x < 125 and y < 125:
-            return self.small_machine_cost
+    def select_printer(self, dims):
+        if dims[0] < 125 and dims[1] < 125:
+            self.machine = Machine.SMALL
         else:
-            return self.large_machine_cost
+            self.machine = Machine.LARGE
 
     def recycled_savings(self, dims, consumption):
         """
@@ -182,7 +183,7 @@ class CostEstimation(Resource):
         :param consumption: the powder consumption
         :return: the value of recycled powder in SEK
         """
-        total = dims[0] * dims[1] * dims[2]
+        total = self.printer[0] * self.printer[1] * dims[2]
         recycled = total - consumption
         return recycled * self.powder_cost * 0.5
 
@@ -211,12 +212,14 @@ class CostEstimation(Resource):
         dims = self.calculate_dimensions(shape)
         cons = self.material_consumption(data, volume)
 
+        self.select_printer(dims)
+
         hours = self.predict_time(data, [[dims[2], volume]])
 
         cost += self.material_cost(cons)
         cost += self.operator_cost(dims)
         cost += self.printing_cost(hours, dims)
-        cost -= self.recycled_savings(dims, cons)
+        cost += self.recycled_savings(dims, cons)
 
         result = {'cost': round(cost, 2)}
         return jsonify(result)
