@@ -7,14 +7,14 @@ from OCC.BRepBndLib import *
 
 from sklearn.linear_model import LinearRegression
 
-from flask import Flask
+from flask import Flask, request
 from flask import Blueprint
 from flask_cors import CORS
 from flask_restful import Resource, Api
 from flask_jsonpify import jsonify
 
 from enum import Enum
-
+import base64
 import numpy as np
 import pyodbc
 import os
@@ -29,13 +29,10 @@ CORS(app)
 class CostEstimation(Resource):
 
     def __init__(self):
-        self.metal_density = 0.0077      # kg/cm^3
+        self.metal_density = 0.008      # kg/cm^3
 
         self.powder_cost = 1000          # kr/kg
         self.labour_cost = 600           # kr/h
-
-        self.small_machine_cost = 600    # kr/h
-        self.large_machine_cost = 800    # kr/h
 
         self.machine = None
         self.include_support = False
@@ -124,6 +121,7 @@ class CostEstimation(Resource):
         """
         if include_support:
             volume += self.estimate_support()
+        print("volume: ", volume)
         return volume
 
     def material_cost(self, consumption):
@@ -135,6 +133,7 @@ class CostEstimation(Resource):
         """
         weight = consumption * self.metal_density
         cost = weight * self.powder_cost
+        print("material cost: ", cost)
         return cost
 
     def estimate_support(self):
@@ -151,6 +150,7 @@ class CostEstimation(Resource):
             if 0 != build_support:
                 support_list.append(build_support)
         support_mean = np.array(support_list).mean()
+        print("support amount: ", support_mean)
         return support_mean / 1000
 
     def operator_cost(self, dims):
@@ -161,6 +161,7 @@ class CostEstimation(Resource):
         """
         area = dims[0] * dims[1]
         cost = self.labour_cost * (22 + (area * 0.5))
+        print("operator cost: ", cost)
         return cost
 
     def printing_cost(self, hours, dims):
@@ -172,11 +173,12 @@ class CostEstimation(Resource):
         :param dims: the shape's dimensions
         :return: the printing cost in SEK
         """
-        cost = hours * self.printer_cost(dims[0], dims[1])
+        cost = hours * self.machine.value[2]
+        print("printing cost: ", cost)
         return cost
 
     def select_printer(self, dims):
-        if dims[0] < 125 and dims[1] < 125:
+        if dims[0] < 12.5 and dims[1] < 12.5:
             self.machine = self.Machine.SMALL
         else:
             self.machine = self.Machine.LARGE
@@ -189,9 +191,10 @@ class CostEstimation(Resource):
         :param consumption: the powder consumption
         :return: the value of recycled powder in SEK
         """
-        total = self.printer[0] * self.printer[1] * dims[2]
+        total = self.machine.value[0] * self.machine.value[1] * dims[2]
         recycled = total - consumption
-        return recycled * self.powder_cost * 0.5
+        print("recycled value loss", recycled * self.metal_density * self.powder_cost * 0.5)
+        return recycled * self.metal_density * self.powder_cost * 0.5
 
     def get_DB_data(self, colName):
 
@@ -222,17 +225,34 @@ class CostEstimation(Resource):
                     row = cursor.fetchone()
         return DB_list
 
-    def get(self, shape):
+    def post(self):
         """
         Estimate the cost of a shape based on
         static data and previous builds.
         :return: the estimated cost in SEK
         """
+
+        print(request.json)
+        # jsonToPython = json.loads(request.json)
+        print(request.json['stlfile']['value'])
+        print(request.json['stlfile']['supportInput'])
+
+        stl_string = base64.b64decode(request.json['stlfile']['value'])
+        with open('/tmp/output', 'wb') as f:
+            f.write(stl_string)
+
+        support_boolean = False
+        support_boolean = request.json['stlfile']['supportInput']
+        print(support_boolean)
+
+
+        shape = self.read_stl_file('/tmp/output')
+
         cost = 0
 
         volume = self.calculate_volume(shape)
         dims = self.calculate_dimensions(shape)
-        cons = self.material_consumption(volume, False)
+        cons = self.material_consumption(volume, support_boolean)
 
         self.select_printer(dims)
 
