@@ -15,7 +15,8 @@ from flask_jsonpify import jsonify
 
 from enum import Enum
 
-import pandas as pa
+import numpy as np
+import pyodbc
 import os
 
 app = Flask(__name__)
@@ -29,6 +30,8 @@ class Machine(Enum):
     SMALL = [12.5, 12.5, 600]
     LARGE = [28.0, 28.0, 800]
 
+DB_list = []  # variable data list from DB
+support_switch = bool  # Determains if the build has support or not.
 
 class CostEstimation(Resource):
 
@@ -93,7 +96,7 @@ class CostEstimation(Resource):
 
         return x/10, y/10, z/10
 
-    def predict_time(self, data, attributes):
+    def predict_time(self, attributes):
         """
         Predict the printing time of the shape by
         performing a multiple linear regression on
@@ -102,18 +105,17 @@ class CostEstimation(Resource):
         :param attributes: the shape's features
         :return: the estimated printing time in h
         """
-        features = data[['Height', 'Volume']]
-        labels = data['Time']
+        features_DB = np.array(get_DB_data('TOTAL_Z_HEIGHT__MM_, VOLUME_OF_PARTS'))
+        features_DB = features_DB.reshape(len(features_DB), 2)
 
-        reg_test = LinearRegression()
-        reg_test.fit(features, labels)
+        labels_DB = get_DB_data('TOTAL_PRINTING_TIME')[0:len(features_DB)]
 
         reg = LinearRegression()
-        reg.fit(features, labels)
+        reg.fit(features_DB, labels_DB)
 
         return reg.predict(attributes)[0] / 60
 
-    def material_consumption(self, data, volume):
+    def material_consumption(self, volume, include_support):
         """
         The total material consumption include the
         powder used for the object and the support
@@ -122,7 +124,8 @@ class CostEstimation(Resource):
         :param volume: the shape's volume
         :return: the material consumption in cm^3
         """
-        volume += self.estimate_support(data)
+        if include_support:
+            volume += self.estimate_support()
         return volume
 
     def material_cost(self, consumption):
@@ -136,7 +139,7 @@ class CostEstimation(Resource):
         cost = weight * self.powder_cost
         return cost
 
-    def estimate_support(self, data):
+    def estimate_support(self):
         """
         Estimate the volume of the support structure
         needed by taking the average of the data from
@@ -144,7 +147,12 @@ class CostEstimation(Resource):
         :param data: data from previous builds
         :return: the estimated support volume in cm^3
         """
-        support_mean = data['Support'].mean()
+        support_collum = get_DB_data('VOLUME_OF_SUPPORTS')
+        support_list = []
+        for build_support in support_collum:
+            if 0 != build_support:
+                support_list.append(build_support)
+        support_mean = np.array(support_list).mean()
         return support_mean / 1000
 
     def operator_cost(self, dims):
@@ -187,7 +195,35 @@ class CostEstimation(Resource):
         recycled = total - consumption
         return recycled * self.powder_cost * 0.5
 
-    def get(self, file):
+    def get_DB_data(colName):
+        DB_list.clear()
+
+        server = 'evoserver.database.windows.net'
+        database = 'SEPDB'
+        username = 'eksmo'
+        password = 'password-8'
+        driver = '{ODBC Driver 13 for SQL Server}'
+        cnxn = pyodbc.connect(
+            'DRIVER=' + driver + ';SERVER=' + server + ';PORT=1433;DATABASE=' + database + ';UID=' + username + ';PWD=' + password)
+
+        cursor = cnxn.cursor()
+
+        # Select Query
+        tsql = "SELECT " + colName + " FROM SwereaData"
+        with cursor.execute(tsql):
+            row = cursor.fetchone()
+            if ", " not in colName:
+                while row:
+                    DB_list.append(row[0])
+                    row = cursor.fetchone()
+            else:
+                while row:
+                    if '-' not in row:
+                        DB_list.append(row)
+                    row = cursor.fetchone()
+        return DB_list
+
+    def get(self, shape):
         """
         Estimate the cost of a shape based on
         static data and previous builds.
@@ -203,18 +239,13 @@ class CostEstimation(Resource):
 
         cost = 0
 
-        shape = self.read_stl_file(file)
-
-        path = "./data.csv"
-        data = pa.read_csv(path, delimiter=';')
-
         volume = self.calculate_volume(shape)
         dims = self.calculate_dimensions(shape)
-        cons = self.material_consumption(data, volume)
+        cons = self.material_consumption(volume, False)
 
         self.select_printer(dims)
 
-        hours = self.predict_time(data, [[dims[2], volume]])
+        hours = self.predict_time([[dims[2], volume]])
 
         cost += self.material_cost(cons)
         cost += self.operator_cost(dims)
